@@ -15,7 +15,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const ADMIN_FRONTEND_URL = process.env.ADMIN_FRONTEND_URL || 'https://admin.plopsorteos.com';
-const ALLOWED_ORIGINS = [FRONTEND_URL, ADMIN_FRONTEND_URL];
+const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS || '';
+const ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS
+  ? CORS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : [FRONTEND_URL, ADMIN_FRONTEND_URL];
 
 // ============================================
 // MIDDLEWARE - Security & Parsing

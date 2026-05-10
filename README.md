@@ -100,6 +100,42 @@ Output esperado:
 npm start
 ```
 
+## Deploy on Render
+
+Este proyecto ya incluye blueprint para Render en `render.yaml`.
+
+### Opcion 1: Blueprint (recomendada)
+
+1. Push del repositorio a GitHub.
+2. En Render: `New +` -> `Blueprint`.
+3. Seleccionar el repo y confirmar creacion.
+4. Configurar variables `sync: false` en Render.
+
+### Opcion 2: Web Service manual
+
+Configurar estos valores en Render:
+
+- Runtime: `Node`
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Health Check Path: `/api/health`
+
+### Variables de entorno requeridas en Render
+
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `RECAPTCHA_SECRET_KEY`
+- `FRONTEND_URL`
+- `ADMIN_FRONTEND_URL`
+
+### Variables recomendadas
+
+- `NODE_ENV=production`
+- `JWT_EXPIRES_IN=8h`
+- `RECAPTCHA_MIN_SCORE=0.5`
+- `RECAPTCHA_SKIP_VALIDATION=false`
+- `CORS_ALLOWED_ORIGINS=https://tu-frontend.com,https://admin.tu-dominio.com`
+
 ## Admin Bootstrap
 
 ### Generar hash de password
