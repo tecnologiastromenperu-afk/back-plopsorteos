@@ -1,4 +1,4 @@
-import { body, validationResult } from 'express-validator';
+import { body, query, validationResult } from 'express-validator';
 
 const isRecaptchaBypassed = String(process.env.RECAPTCHA_SKIP_VALIDATION || 'false').toLowerCase() === 'true';
 
@@ -55,6 +55,14 @@ export const validateCodeInput = [
     .withMessage('reCAPTCHA token is required')
     .isLength({ min: 10 })
     .withMessage('Invalid reCAPTCHA token'),
+];
+
+export const winnersQueryValidation = [
+  query('prizeType')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 100 })
+    .withMessage('prizeType must be 1-100 chars'),
 ];
 
 export const validationErrorHandler = (req, res, next) => {

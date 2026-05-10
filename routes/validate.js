@@ -1,6 +1,6 @@
 import express from 'express';
-import { validateCode, getHealth } from '../controllers/validateCode.js';
-import { validateCodeInput } from '../middleware/validation.js';
+import { validateCode, getHealth, getWinners } from '../controllers/validateCode.js';
+import { validateCodeInput, winnersQueryValidation, validationErrorHandler } from '../middleware/validation.js';
 
 const router = express.Router();
 
@@ -15,5 +15,11 @@ router.post('/validate-code', validateCodeInput, validateCode);
  * Health check endpoint
  */
 router.get('/health', getHealth);
+
+/**
+ * GET /api/winners
+ * Lists winners with limited personal data
+ */
+router.get('/winners', winnersQueryValidation, validationErrorHandler, getWinners);
 
 export default router;

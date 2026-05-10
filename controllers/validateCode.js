@@ -207,6 +207,74 @@ export const validateCode = async (req, res) => {
   }
 };
 
+const getLastThreeDocumentDigits = (documentId) => {
+  const value = String(documentId || '').trim();
+  if (value.length <= 3) {
+    return value;
+  }
+  return value.slice(-3);
+};
+
+export const getWinners = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array().map((err) => ({
+          field: err.path,
+          message: err.msg,
+        })),
+      });
+    }
+
+    const { prizeType } = req.query;
+    const match = {
+      status: 'valid',
+    };
+
+    if (prizeType) {
+      match['prize.type'] = { $regex: prizeType.trim(), $options: 'i' };
+    }
+
+    const winners = await ValidationLog.aggregate([
+      { $match: match },
+      { $sort: { timestamp: -1 } },
+      {
+        $project: {
+          _id: 0,
+          fullName: 1,
+          prize: 1,
+          email: 1,
+          documentId: 1,
+        },
+      },
+    ]);
+
+    const data = winners.map((winner) => ({
+      fullName: winner.fullName,
+      prize: winner.prize,
+      email: winner.email,
+      documentId: getLastThreeDocumentDigits(winner.documentId),
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    logger.error('Failed to fetch public winners', error, {
+      prizeType: req.query?.prizeType,
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
 const logValidationAttempt = async (details) => {
   try {
     const log = new ValidationLog(details);
