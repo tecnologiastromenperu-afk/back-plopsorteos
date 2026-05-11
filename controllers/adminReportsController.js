@@ -74,25 +74,37 @@ export const getAdminRedemptions = async (req, res) => {
 export const getAdminWinners = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
-    const { q, from, to, prizeType } = req.query;
+    const { q, from, to, prizeType, prizeDeliveryStatus } = req.query;
 
-    const match = {
-      status: 'valid',
-    };
+    const matchConditions = [{ status: 'valid' }];
 
     const range = dateRangeFilter(from, to);
     if (range) {
-      match.timestamp = range;
+      matchConditions.push({ timestamp: range });
     }
 
     if (prizeType) {
-      match['prize.type'] = { $regex: prizeType.trim(), $options: 'i' };
+      matchConditions.push({ 'prize.type': { $regex: prizeType.trim(), $options: 'i' } });
+    }
+
+    if (prizeDeliveryStatus) {
+      if (prizeDeliveryStatus === 'pending') {
+        matchConditions.push({
+          $or: [{ prizeDeliveryStatus: 'pending' }, { prizeDeliveryStatus: { $exists: false } }],
+        });
+      } else {
+        matchConditions.push({ prizeDeliveryStatus: 'delivered' });
+      }
     }
 
     if (q) {
       const regex = { $regex: q.trim(), $options: 'i' };
-      match.$or = [{ code: regex }, { email: regex }, { documentId: regex }, { fullName: regex }];
+      matchConditions.push({
+        $or: [{ code: regex }, { email: regex }, { documentId: regex }, { fullName: regex }],
+      });
     }
+
+    const match = matchConditions.length > 1 ? { $and: matchConditions } : matchConditions[0];
 
     const basePipeline = [
       { $match: match },
@@ -126,6 +138,7 @@ export const getAdminWinners = async (req, res) => {
           prize: 1,
           timestamp: 1,
           status: 1,
+          prizeDeliveryStatus: { $ifNull: ['$prizeDeliveryStatus', 'pending'] },
           codeActive: '$promoCode.isActive',
         },
       },
@@ -150,6 +163,61 @@ export const getAdminWinners = async (req, res) => {
     });
   } catch (error) {
     logger.error('Failed to fetch winners', error, { adminId: req.admin?.id });
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+export const updateAdminWinnerDeliveryStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { prizeDeliveryStatus } = req.body;
+
+    const updatedWinner = await ValidationLog.findOneAndUpdate(
+      { _id: id, status: 'valid' },
+      { $set: { prizeDeliveryStatus } },
+      {
+        new: true,
+        projection: {
+          _id: 1,
+          code: 1,
+          fullName: 1,
+          email: 1,
+          documentId: 1,
+          prize: 1,
+          timestamp: 1,
+          prizeDeliveryStatus: 1,
+        },
+      }
+    );
+
+    if (!updatedWinner) {
+      return res.status(404).json({
+        success: false,
+        message: 'Winner not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Prize delivery status updated',
+      data: updatedWinner,
+    });
+  } catch (error) {
+    logger.error('Failed to update winner delivery status', error, {
+      adminId: req.admin?.id,
+      winnerId: req.params?.id,
+    });
+
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid winner id',
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Internal server error',

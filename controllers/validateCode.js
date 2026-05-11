@@ -173,6 +173,7 @@ export const validateCode = async (req, res) => {
       product,
       prize: promotionalCode.prize,
       status: 'valid',
+      prizeDeliveryStatus: 'pending',
       recaptchaScore: recaptchaValidation.score,
       userAgent,
       ipAddress,

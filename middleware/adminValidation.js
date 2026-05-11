@@ -46,3 +46,21 @@ export const paginationValidation = [
   query('page').optional().isInt({ min: 1 }).withMessage('page must be >= 1'),
   query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('limit must be 1-200'),
 ];
+
+export const winnersReportValidation = [
+  ...paginationValidation,
+  query('prizeDeliveryStatus')
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(['pending', 'delivered'])
+    .withMessage('prizeDeliveryStatus must be pending or delivered'),
+];
+
+export const updateWinnerDeliveryStatusValidation = [
+  body('prizeDeliveryStatus')
+    .trim()
+    .toLowerCase()
+    .isIn(['pending', 'delivered'])
+    .withMessage('prizeDeliveryStatus must be pending or delivered'),
+];
