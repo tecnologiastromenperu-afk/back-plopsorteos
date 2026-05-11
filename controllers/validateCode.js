@@ -215,6 +215,17 @@ const getLastThreeDocumentDigits = (documentId) => {
   return value.slice(-3);
 };
 
+const maskFullName = (fullName) => {
+  const parts = String(fullName || '').trim().split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  const firstName = parts[0];
+  const secondPart = parts[1];
+  const masked = secondPart[0] + '*'.repeat(Math.max(secondPart.length - 1, 0));
+  return `${firstName} ${masked}`;
+};
+
 export const getWinners = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -253,7 +264,7 @@ export const getWinners = async (req, res) => {
     ]);
 
     const data = winners.map((winner) => ({
-      fullName: winner.fullName,
+      fullName: maskFullName(winner.fullName),
       prize: winner.prize,
       email: winner.email,
       documentId: getLastThreeDocumentDigits(winner.documentId),
