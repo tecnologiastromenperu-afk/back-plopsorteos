@@ -81,5 +81,6 @@ validationLogSchema.index({ timestamp: -1, status: 1 });
 validationLogSchema.index({ email: 1, timestamp: -1 });
 validationLogSchema.index({ ipAddress: 1, timestamp: -1 });
 validationLogSchema.index({ status: 1, prizeDeliveryStatus: 1, timestamp: -1 });
+validationLogSchema.index({ code: 1, documentId: 1, status: 1, timestamp: -1 });
 
 export default mongoose.model('ValidationLog', validationLogSchema);

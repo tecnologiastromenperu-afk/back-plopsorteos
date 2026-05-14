@@ -21,6 +21,8 @@ export const validateCode = async (req, res) => {
     }
 
     const { code, fullName, documentId, email, phone, product, recaptchaToken } = req.body;
+    const normalizedCode = code.toUpperCase();
+    const normalizedDocumentId = String(documentId).trim();
     const userAgent = req.get('user-agent');
     const ipAddress = req.ip || req.connection.remoteAddress;
 
@@ -59,9 +61,46 @@ export const validateCode = async (req, res) => {
 
     logger.info('reCAPTCHA validation passed', { score: recaptchaValidation.score });
 
-    // Step 2: Find promotional code in database
+    // Step 2: Prevent duplicate redemption for the same document and code
+    const existingRedemption = await ValidationLog.findOne({
+      code: normalizedCode,
+      documentId: normalizedDocumentId,
+      status: 'valid',
+    }).select('_id timestamp');
+
+    if (existingRedemption) {
+      logger.audit('validation_attempt', {
+        code,
+        email,
+        documentId,
+        status: 'invalid',
+        reason: 'already_redeemed',
+      });
+
+      await logValidationAttempt({
+        code,
+        email,
+        documentId,
+        fullName,
+        phone,
+        product,
+        status: 'invalid',
+        reason: 'Document ID has already redeemed this promotional code',
+        recaptchaScore: recaptchaValidation.score,
+        userAgent,
+        ipAddress,
+      });
+
+      return res.status(409).json({
+        success: false,
+        message: 'Este codigo promocional ya fue canjeado. Ver la sección de ganadores para más información.',
+        reason: 'already_redeemed',
+      });
+    }
+
+    // Step 3: Find promotional code in database
     const promotionalCode = await PromotionalCode.findOne({
-      code: code.toUpperCase(),
+      code: normalizedCode,
       isActive: true,
     });
 
@@ -93,7 +132,7 @@ export const validateCode = async (req, res) => {
       });
     }
 
-    // Step 3: Check if code has expired
+    // Step 4: Check if code has expired
     const now = new Date();
     if (promotionalCode.expirationDate < now) {
       logger.audit('validation_attempt', {
@@ -123,7 +162,7 @@ export const validateCode = async (req, res) => {
       });
     }
 
-    // Step 4: Check if code has available uses
+    // Step 5: Check if code has available uses
     if (promotionalCode.usedCount >= promotionalCode.maxUses) {
       logger.audit('validation_attempt', {
         code,
@@ -152,7 +191,7 @@ export const validateCode = async (req, res) => {
       });
     }
 
-    // Step 5: Increment used count
+    // Step 6: Increment used count
     promotionalCode.usedCount++;
     await promotionalCode.save();
 
@@ -163,7 +202,7 @@ export const validateCode = async (req, res) => {
       prize: promotionalCode.prize.type,
     });
 
-    // Step 6: Log successful validation
+    // Step 7: Log successful validation
     await logValidationAttempt({
       code,
       email,
