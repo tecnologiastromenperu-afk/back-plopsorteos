@@ -228,20 +228,36 @@ export const updateAdminWinnerDeliveryStatus = async (req, res) => {
 export const getAdminDashboardSummary = async (req, res) => {
   try {
     const now = new Date();
+    const redeemableCodesFilter = {
+      isActive: true,
+      expirationDate: { $gte: now },
+      $expr: { $lt: ['$usedCount', '$maxUses'] },
+    };
+    const doubleUseRedeemableFilter = {
+      maxUses: 2,
+      isActive: true,
+      expirationDate: { $gte: now },
+      $expr: { $lt: ['$usedCount', 2] },
+    };
 
     const [
       totalCodes,
-      activeCodes,
-      expiredCodes,
       validRedemptions,
+      nonValidRedemptions,
+      availableCodesCount,
       winnerCountResult,
+      remainingUsesResult,
+      productRedemptions,
+      doubleUseStatsResult,
+      doubleUseRedeemableRemainingUsesResult,
+      doubleUseCodes,
       topPrizes,
       topProducts,
     ] = await Promise.all([
       PromotionalCode.countDocuments({}),
-      PromotionalCode.countDocuments({ isActive: true, expirationDate: { $gte: now } }),
-      PromotionalCode.countDocuments({ expirationDate: { $lt: now } }),
       ValidationLog.countDocuments({ status: 'valid' }),
+      ValidationLog.countDocuments({ status: { $nin: ['valid', 'invalid'] } }),
+      PromotionalCode.countDocuments(redeemableCodesFilter),
       ValidationLog.aggregate([
         { $match: { status: 'valid' } },
         {
@@ -264,6 +280,186 @@ export const getAdminDashboardSummary = async (req, res) => {
         },
         { $count: 'total' },
       ]),
+      PromotionalCode.aggregate([
+        { $match: redeemableCodesFilter },
+        {
+          $project: {
+            remainingUses: {
+              $max: [{ $subtract: ['$maxUses', '$usedCount'] }, 0],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$remainingUses' },
+          },
+        },
+      ]),
+      ValidationLog.aggregate([
+        {
+          $match: {
+            status: { $ne: 'invalid' },
+          },
+        },
+        {
+          $group: {
+            _id: '$product',
+            validCount: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'valid'] }, 1, 0],
+              },
+            },
+            nonValidCount: {
+              $sum: {
+                $cond: [{ $and: [{ $ne: ['$status', 'valid'] }, { $ne: ['$status', 'invalid'] }] }, 1, 0],
+              },
+            },
+          },
+        },
+        {
+          $match: {
+            $or: [{ validCount: { $gt: 0 } }, { nonValidCount: { $gt: 0 } }],
+          },
+        },
+        {
+          $sort: {
+            validCount: -1,
+            nonValidCount: -1,
+          },
+        },
+      ]),
+      PromotionalCode.aggregate([
+        { $match: { maxUses: 2 } },
+        {
+          $project: {
+            usedCount: 1,
+            remainingUses: {
+              $max: [{ $subtract: [2, '$usedCount'] }, 0],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalCodes: { $sum: 1 },
+            redeemedCodes: {
+              $sum: {
+                $cond: [{ $gt: ['$usedCount', 0] }, 1, 0],
+              },
+            },
+            fullyRedeemedCodes: {
+              $sum: {
+                $cond: [{ $gte: ['$usedCount', 2] }, 1, 0],
+              },
+            },
+            oneUseLeftCodes: {
+              $sum: {
+                $cond: [{ $eq: ['$usedCount', 1] }, 1, 0],
+              },
+            },
+            unusedCodes: {
+              $sum: {
+                $cond: [{ $eq: ['$usedCount', 0] }, 1, 0],
+              },
+            },
+            remainingUsesTotal: {
+              $sum: '$remainingUses',
+            },
+          },
+        },
+      ]),
+      PromotionalCode.aggregate([
+        { $match: doubleUseRedeemableFilter },
+        {
+          $project: {
+            remainingUses: {
+              $max: [{ $subtract: [2, '$usedCount'] }, 0],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$remainingUses' },
+          },
+        },
+      ]),
+      PromotionalCode.aggregate([
+        { $match: { maxUses: 2 } },
+        {
+          $addFields: {
+            remainingUses: {
+              $max: [{ $subtract: [2, '$usedCount'] }, 0],
+            },
+            isExpired: {
+              $lt: ['$expirationDate', now],
+            },
+          },
+        },
+        {
+          $addFields: {
+            stateLabel: {
+              $switch: {
+                branches: [
+                  {
+                    case: { $or: [{ $eq: ['$isActive', false] }, '$isExpired'] },
+                    then: 'Unavailable',
+                  },
+                  {
+                    case: { $gte: ['$usedCount', 2] },
+                    then: 'Exhausted',
+                  },
+                  {
+                    case: { $eq: ['$usedCount', 1] },
+                    then: 'Partial',
+                  },
+                ],
+                default: 'Available',
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            stateSort: {
+              $switch: {
+                branches: [
+                  { case: { $eq: ['$stateLabel', 'Partial'] }, then: 1 },
+                  { case: { $eq: ['$stateLabel', 'Available'] }, then: 2 },
+                  { case: { $eq: ['$stateLabel', 'Exhausted'] }, then: 3 },
+                ],
+                default: 4,
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            code: 1,
+            product: {
+              $let: {
+                vars: {
+                  productText: { $trim: { input: { $ifNull: ['$product', ''] } } },
+                },
+                in: {
+                  $cond: [{ $eq: ['$$productText', ''] }, 'N/A', '$$productText'],
+                },
+              },
+            },
+            usedCount: 1,
+            maxUses: 1,
+            remainingUses: 1,
+            stateLabel: 1,
+            isActive: 1,
+            expirationDate: 1,
+            isExpired: 1,
+            stateSort: 1,
+          },
+        },
+        { $sort: { stateSort: 1, usedCount: -1, expirationDate: 1, code: 1 } },
+      ]),
       ValidationLog.aggregate([
         { $match: { status: 'valid' } },
         { $group: { _id: '$prize.type', count: { $sum: 1 } } },
@@ -279,14 +475,59 @@ export const getAdminDashboardSummary = async (req, res) => {
     ]);
 
     const activeWinners = winnerCountResult.length ? winnerCountResult[0].total : 0;
+    const remainingUsesTotal = remainingUsesResult.length ? remainingUsesResult[0].total : 0;
+    const doubleUseStats = doubleUseStatsResult.length
+      ? {
+          totalCodes: doubleUseStatsResult[0].totalCodes,
+          redeemedCodes: doubleUseStatsResult[0].redeemedCodes,
+          fullyRedeemedCodes: doubleUseStatsResult[0].fullyRedeemedCodes,
+          oneUseLeftCodes: doubleUseStatsResult[0].oneUseLeftCodes,
+          unusedCodes: doubleUseStatsResult[0].unusedCodes,
+          remainingUsesTotal: doubleUseStatsResult[0].remainingUsesTotal,
+        }
+      : {
+          totalCodes: 0,
+          redeemedCodes: 0,
+          fullyRedeemedCodes: 0,
+          oneUseLeftCodes: 0,
+          unusedCodes: 0,
+          remainingUsesTotal: 0,
+        };
+    const doubleUseRedeemableRemainingUsesTotal = doubleUseRedeemableRemainingUsesResult.length
+      ? doubleUseRedeemableRemainingUsesResult[0].total
+      : 0;
+    const doubleUseAvailableCodesCount = doubleUseCodes.filter((item) => item.stateLabel === 'Available').length;
     const redemptionRate = totalCodes > 0 ? Number(((validRedemptions / totalCodes) * 100).toFixed(2)) : 0;
 
     return res.status(200).json({
       success: true,
       data: {
         totalCodes,
-        activeCodes,
-        expiredCodes,
+        validRedeemedCodes: validRedemptions,
+        nonValidRedeemedCodes: nonValidRedemptions,
+        availableCodesCount,
+        remainingUsesTotal,
+        productRedemptions: productRedemptions.map((item) => ({
+          product: item._id && String(item._id).trim() ? String(item._id).trim() : 'N/A',
+          validCount: item.validCount,
+          nonValidCount: item.nonValidCount,
+        })),
+        doubleUseStats: {
+          ...doubleUseStats,
+          availableCodesCount: doubleUseAvailableCodesCount,
+          redeemableRemainingUsesTotal: doubleUseRedeemableRemainingUsesTotal,
+        },
+        doubleUseCodes: doubleUseCodes.map((item) => ({
+          code: item.code,
+          product: item.product,
+          usedCount: item.usedCount,
+          maxUses: item.maxUses,
+          remainingUses: item.remainingUses,
+          stateLabel: item.stateLabel,
+          isActive: item.isActive,
+          isExpired: item.isExpired,
+          expirationDate: item.expirationDate,
+        })),
         validRedemptions,
         activeWinners,
         redemptionRate,
